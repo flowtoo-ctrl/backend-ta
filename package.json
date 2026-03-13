@@ -4,27 +4,31 @@
  "description": "Ticket purchasing system with PayFast integration",
  "main": "index.js",
  "scripts": {
- "start": "node index.js",
- "dev": "nodemon index.js",
- "test": "jest"
+  "start": "node index.js",
+  "dev": "nodemon index.js",
+  "test": "jest"
  },
- "keywords": ["tickets", "events", "payfast"],
+ "keywords": [
+  "tickets",
+  "events",
+  "payfast"
+ ],
  "author": "",
  "license": "MIT",
  "dependencies": {
- "express": "^4.18.2",
- "mongoose": "^7.0.0",
- "cors": "^2.8.5",
- "dotenv": "^16.0.3",
- "jsonwebtoken": "^9.0.0",
- "bcryptjs": "^2.4.3",
- "axios": "^1.3.0",
- "qrcode": "^1.5.0",
- "nodemailer": "^6.9.0",
- "pdfkit": "^0.13.0"
+  "axios": "^1.3.0",
+  "bcryptjs": "^2.4.3",
+  "cors": "^2.8.5",
+  "dotenv": "^16.0.3",
+  "express": "^4.18.2",
+  "jsonwebtoken": "^9.0.0",
+  "mongoose": "^7.0.0",
+  "multer": "^2.1.1",
+  "nodemailer": "^6.9.0",
+  "pdfkit": "^0.13.0",
+  "qrcode": "^1.5.0"
  },
  "devDependencies": {
- "nodemon": "^2.0.20"
+  "nodemon": "^2.0.20"
  }
 }
-
