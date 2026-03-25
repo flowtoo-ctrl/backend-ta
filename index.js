@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const app = express();
+const adminRoutes = require("./routes/admin");
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -16,6 +17,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/events', require('./routes/events'));
 app.use('/api/tickets', require('./routes/tickets'));
 app.use('/api/payments', require('./routes/payments'));
+app.use("/api/admin", adminRoutes);
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK' });
