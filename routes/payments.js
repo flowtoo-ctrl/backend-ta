@@ -201,67 +201,106 @@ router.post("/buy", async (req, res) => {
 /* =========================
    NOTIFY ROUTE
 ========================= */
-router.post("/notify", express.urlencoded({ extended: true }), async (req, res) => {
-  res.sendStatus(200);
+router.post(
+  "/notify",
+  express.urlencoded({ extended: true }),
+  async (req, res) => {
+    console.log("🔥🔥 PAYFAST NOTIFY HIT 🔥🔥");
+    console.log("BODY:", req.body);
 
-  const pfData = req.body;
+    try {
+      const pfData = { ...req.body };
 
-  try {
-    const receivedSig = pfData.signature;
-    delete pfData.signature;
+      const receivedSig = pfData.signature;
+      delete pfData.signature;
 
-    const calculatedSig = generateSignature(
-      pfData,
-      process.env.PAYFAST_PASSPHRASE || ""
-    );
+      const calculatedSig = generateSignature(
+        pfData,
+        process.env.PAYFAST_PASSPHRASE || ""
+      );
 
-    if (receivedSig !== calculatedSig) {
-      console.log("❌ Invalid signature");
-      return;
+      console.log("Generated Sig:", calculatedSig);
+      console.log("Received Sig:", receivedSig);
+
+      if (receivedSig !== calculatedSig) {
+        console.log("❌ Invalid signature");
+        return res.status(400).send("Invalid signature");
+      }
+
+      const valid = await verifyWithPayFast(pfData);
+      console.log("PayFast validation:", valid);
+
+      if (!valid) {
+        console.log("❌ PayFast validation failed");
+        return res.status(400).send("Invalid");
+      }
+
+      if (pfData.payment_status !== "COMPLETE") {
+        console.log("⏳ Payment not complete");
+        return res.sendStatus(200);
+      }
+
+      const exists = await Ticket.findOne({
+        paymentId: pfData.m_payment_id
+      });
+
+      if (exists) {
+        console.log("⚠️ Ticket already exists");
+        return res.sendStatus(200);
+      }
+
+      const event = await Event.findById(pfData.custom_str1);
+      if (!event) {
+        console.log("❌ Event not found");
+        return res.sendStatus(200);
+      }
+
+      const paid = parseFloat(pfData.amount_gross);
+      console.log("Paid:", paid, "Expected:", event.price);
+
+      if (Math.abs(paid - event.price) > 0.01) {
+        console.log("❌ Amount mismatch");
+        return res.sendStatus(200);
+      }
+
+      console.log("🎟️ Creating ticket...");
+
+      const qrData = `ticket:${pfData.m_payment_id}:${pfData.email_address}`;
+      const qr = await QRCode.toDataURL(qrData);
+
+      const ticket = await Ticket.create({
+        event: event._id,
+        buyerEmail: pfData.email_address,
+        qrCode: qr,
+        paymentId: pfData.m_payment_id,
+        status: "paid"
+      });
+
+      await Event.findByIdAndUpdate(event._id, {
+        $inc: { ticketsAvailable: -1 }
+      });
+
+      console.log("📉 Ticket count reduced");
+
+      await sendTicketEmail(
+        event,
+        pfData.email_address,
+        qr,
+        pfData.m_payment_id
+      );
+
+      console.log("📩 Email sent");
+
+      console.log("✅ Ticket created:", ticket._id);
+
+      return res.sendStatus(200);
+
+    } catch (err) {
+      console.error("❌ Notify error FULL:", err);
+      return res.sendStatus(500);
     }
-
-    const valid = await verifyWithPayFast(pfData);
-    if (!valid) {
-      console.log("❌ PayFast validation failed");
-      return;
-    }
-
-    if (pfData.payment_status !== "COMPLETE") return;
-
-    const exists = await Ticket.findOne({ paymentId: pfData.m_payment_id });
-    if (exists) return;
-
-    const event = await Event.findById(pfData.custom_str1);
-    if (!event) return;
-
-    const paid = parseFloat(pfData.amount_gross);
-    if (Math.abs(paid - event.price) > 0.01) {
-      console.log("❌ Amount mismatch");
-      return;
-    }
-
-    const qrData = `ticket:${pfData.m_payment_id}:${pfData.email_address}`;
-    const qr = await QRCode.toDataURL(qrData);
-
-    const ticket = await Ticket.create({
-      event: event._id,
-      buyerEmail: pfData.email_address,
-      qrCode: qr,
-      paymentId: pfData.m_payment_id,
-      status: "paid"
-    });
-
-    await Event.findByIdAndUpdate(event._id, {
-      $inc: { ticketsAvailable: -1 }
-    });
-
-    await sendTicketEmail(event, pfData.email_address, qr, pfData.m_payment_id);
-
-    console.log("✅ Ticket created:", ticket._id);
-
-  } catch (err) {
-    console.error("❌ Notify error:", err.message);
   }
-});
+);
+
 
 module.exports = router;
