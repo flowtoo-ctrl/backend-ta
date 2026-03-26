@@ -34,39 +34,99 @@ function generateSignature(data, passphrase = "") {
 // =========================
 router.post("/pay", async (req, res) => {
   try {
+    console.log("🔥 PAY ROUTE HIT");
+    console.log("BODY:", req.body);
+
     const { eventId, email } = req.body;
 
-    const event = await Event.findById(eventId);
-    if (!event) return res.status(404).json({ message: "Event not found" });
+    // =========================
+    // VALIDATION
+    // =========================
+    if (!eventId || !email) {
+      console.log("❌ Missing eventId or email");
+      return res.status(400).json({
+        message: "eventId and email are required"
+      });
+    }
 
+    const event = await Event.findById(eventId);
+
+    if (!event) {
+      console.log("❌ Event NOT found:", eventId);
+      return res.status(404).json({
+        message: "Event not found"
+      });
+    }
+
+    console.log("✅ Event found:", event.title);
+
+    if (!event.price) {
+      console.log("❌ Event has no price");
+      return res.status(400).json({
+        message: "Event price missing"
+      });
+    }
+
+    // =========================
+    // ENV CHECK
+    // =========================
+    if (!process.env.PAYFAST_MERCHANT_ID) {
+      console.log("❌ Missing MERCHANT_ID");
+    }
+    if (!process.env.PAYFAST_MERCHANT_KEY) {
+      console.log("❌ Missing MERCHANT_KEY");
+    }
+    if (!process.env.BASE_URL) {
+      console.log("❌ Missing BASE_URL");
+    }
+
+    // =========================
+    // PAYMENT DATA
+    // =========================
     const paymentData = {
       merchant_id: process.env.PAYFAST_MERCHANT_ID,
       merchant_key: process.env.PAYFAST_MERCHANT_KEY,
+
       return_url: `${process.env.BASE_URL}/success`,
       cancel_url: `${process.env.BASE_URL}/cancel`,
       notify_url: `${process.env.BASE_URL}/api/payments/notify`,
+
       m_payment_id: Date.now().toString(),
-      amount: event.price.toFixed(2),
+
+      amount: Number(event.price).toFixed(2),
       item_name: `Ticket for ${event.title}`,
+
       email_address: email,
       custom_str1: event._id.toString()
     };
 
-    paymentData.signature = generateSignature(
+    console.log("💰 Payment Data:", paymentData);
+
+    const signature = generateSignature(
       paymentData,
-      process.env.PAYFAST_PASSPHRASE
+      process.env.PAYFAST_PASSPHRASE || ""
     );
+
+    paymentData.signature = signature;
 
     const url =
       process.env.PAYFAST_SANDBOX === "true"
         ? "https://sandbox.payfast.co.za/eng/process"
         : "https://www.payfast.co.za/eng/process";
 
-    res.json({ url, data: paymentData });
+    console.log("🚀 Sending to PayFast");
+
+    return res.json({
+      url,
+      data: paymentData
+    });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Payment error" });
+    console.error("❌ PAY ERROR FULL:", err);
+    return res.status(500).json({
+      message: "Error initiating payment",
+      error: err.message
+    });
   }
 });
 
