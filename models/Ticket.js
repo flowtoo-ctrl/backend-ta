@@ -1,19 +1,50 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const ticketSchema = new mongoose.Schema({
-  event: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
-  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  buyerEmail: { type: String, required: true },
-  qrCode: { type: String },
-  paymentId: { type: String, required: true, unique: true },
-  status: { 
-    type: String, 
-    enum: ['pending', 'paid', 'cancelled'], 
-    default: 'pending' 
+  event: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Event",
+    required: true
   },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
+  buyerEmail: {
+    type: String,
+    required: true,
+    trim: true,
+    lowercase: true
+  },
+  ticketType: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  qrCode: {
+    type: String, // Base64 data URL from QRCode.toDataURL()
+    required: true
+  },
+  paymentId: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  status: {
+    type: String,
+    enum: ["paid", "used", "cancelled"],
+    default: "paid"
+  },
+  amount: {
+    type: Number,
+    required: true
+  },
+  usedAt: {
+    type: Date
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
-module.exports = mongoose.model('Ticket', ticketSchema);
+const Ticket = mongoose.model("Ticket", ticketSchema);
+
+module.exports = Ticket;
 

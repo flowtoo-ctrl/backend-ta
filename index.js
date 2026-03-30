@@ -33,3 +33,7 @@ app.listen(PORT, () => {
 });
 app.use("/uploads",
 express.static("uploads"));
+//passing
+app.use(express.json()); // For parsing application/json
+app.use(express.urlencoded({ extended: true })); // For parsing application/x-www-form-urlencoded
+

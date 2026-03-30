@@ -7,16 +7,17 @@ const Event = require("../models/Event");
 const Ticket = require("../models/Ticket");
 
 // =========================
-// SIGNATURE
+// SIGNATURE GENERATION
 // =========================
 function generateSignature(data, passphrase = "") {
   let pfOutput = "";
 
   Object.keys(data)
     .sort()
-    .forEach(key => {
-      if (data[key] !== "") {
-        pfOutput += `${key}=${encodeURIComponent(data[key]).replace(/%20/g, "+")}&`;
+    .forEach((key) => {
+      const value = data[key];
+      if (value !== "" && value !== null && value !== undefined) {
+        pfOutput += `${key}=${encodeURIComponent(value).replace(/%20/g, "+")}&`;
       }
     });
 
@@ -34,95 +35,60 @@ function generateSignature(data, passphrase = "") {
 // =========================
 router.post("/pay", async (req, res) => {
   try {
-    console.log("🔥 PAY ROUTE HIT");
-    console.log("BODY:", req.body);
+    console.log("🔥 PAY ROUTE HIT", req.body);
 
-    const { eventId, email } = req.body;
+    const { eventId, email, ticketType, firstName, lastName } = req.body;
 
-    // =========================
-    // VALIDATION
-    // =========================
-    if (!eventId || !email) {
-      console.log("❌ Missing eventId or email");
-      return res.status(400).json({
-        message: "eventId and email are required"
+    if (!eventId || !email || !ticketType) {
+      return res.status(400).json({ 
+        message: "eventId, email, and ticketType are required" 
       });
     }
 
     const event = await Event.findById(eventId);
-
     if (!event) {
-      console.log("❌ Event NOT found:", eventId);
-      return res.status(404).json({
-        message: "Event not found"
-      });
+      return res.status(404).json({ message: "Event not found" });
     }
 
-    console.log("✅ Event found:", event.title);
-
-    if (!event.price) {
-      console.log("❌ Event has no price");
-      return res.status(400).json({
-        message: "Event price missing"
-      });
+    const selectedTicket = event.ticketTypes.find(t => t.name === ticketType);
+    if (!selectedTicket) {
+      return res.status(400).json({ message: "Invalid ticket type selected" });
     }
 
-    // =========================
-    // ENV CHECK
-    // =========================
-    if (!process.env.PAYFAST_MERCHANT_ID) {
-      console.log("❌ Missing MERCHANT_ID");
-    }
-    if (!process.env.PAYFAST_MERCHANT_KEY) {
-      console.log("❌ Missing MERCHANT_KEY");
-    }
-    if (!process.env.BASE_URL) {
-      console.log("❌ Missing BASE_URL");
+    if (selectedTicket.quantity <= 0) {
+      return res.status(400).json({ message: "Selected ticket type is sold out" });
     }
 
-    // =========================
-    // PAYMENT DATA
-    // =========================
     const paymentData = {
       merchant_id: process.env.PAYFAST_MERCHANT_ID,
       merchant_key: process.env.PAYFAST_MERCHANT_KEY,
-
       return_url: `${process.env.BASE_URL}/success`,
       cancel_url: `${process.env.BASE_URL}/cancel`,
       notify_url: `${process.env.BASE_URL}/api/payments/notify`,
-
-      m_payment_id: Date.now().toString(),
-
-      amount: Number(event.price).toFixed(2),
-      item_name: `Ticket for ${event.title}`,
-
-      email_address: email,
-      custom_str1: event._id.toString()
+      m_payment_id: `ticket_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      amount: Number(selectedTicket.price).toFixed(2),
+      item_name: `${selectedTicket.name} Ticket - ${event.title}`.substring(0, 255),
+      email_address: email.trim(),
+      name_first: firstName || "Guest",
+      name_last: lastName || "User",
+      custom_str1: event._id.toString(),
+      custom_str2: ticketType,
+      custom_str3: selectedTicket.price.toString()
     };
 
-    console.log("💰 Payment Data:", paymentData);
-
-    const signature = generateSignature(
-      paymentData,
-      process.env.PAYFAST_PASSPHRASE || ""
-    );
-
+    const signature = generateSignature(paymentData, process.env.PAYFAST_PASSPHRASE || "");
     paymentData.signature = signature;
 
-    const url =
-      process.env.PAYFAST_SANDBOX === "true"
-        ? "https://sandbox.payfast.co.za/eng/process"
-        : "https://www.payfast.co.za/eng/process";
+    const url = process.env.PAYFAST_SANDBOX === "true"
+      ? "https://sandbox.payfast.co.za/eng/process"
+      : "https://www.payfast.co.za/eng/process";
 
-    console.log("🚀 Sending to PayFast");
+    console.log(`✅ Payment ready for ${ticketType} ticket`);
 
-    return res.json({
-      url,
-      data: paymentData
-    });
+    return res.json({ url, data: paymentData });
 
   } catch (err) {
-    console.error("❌ PAY ERROR FULL:", err);
+    console.error("❌ PAY ERROR FULL:", err.stack || err);
     return res.status(500).json({
       message: "Error initiating payment",
       error: err.message
@@ -131,73 +97,91 @@ router.post("/pay", async (req, res) => {
 });
 
 // =========================
-// 🔥 NOTIFY (FINAL FIX)
+// NOTIFY ROUTE - FIXED
 // =========================
 router.post(
   "/notify",
   express.urlencoded({ extended: true }),
   async (req, res) => {
-
-    console.log("🔥 NOTIFY HIT");
-    console.log(req.body);
+    console.log("🔥 NOTIFY HIT", req.body);
 
     try {
-      const pfData = req.body;
+      const pfData = { ...req.body };
 
-      // ONLY check payment complete
       if (pfData.payment_status !== "COMPLETE") {
-        console.log("❌ Not complete");
+        console.log("❌ Payment not complete");
         return res.sendStatus(200);
       }
 
-      // prevent duplicate
-      const exists = await Ticket.findOne({
-        paymentId: pfData.m_payment_id
-      });
+      // Verify signature
+      const receivedSig = pfData.signature;
+      delete pfData.signature;
 
+      const calculatedSig = generateSignature(pfData, process.env.PAYFAST_PASSPHRASE || "");
+      
+      if (receivedSig !== calculatedSig) {
+        console.log("❌ Invalid signature");
+        return res.sendStatus(400);
+      }
+
+      // Prevent duplicate
+      const exists = await Ticket.findOne({ paymentId: pfData.m_payment_id });
       if (exists) {
-        console.log("⚠️ Already exists");
+        console.log("⚠️ Ticket already exists");
         return res.sendStatus(200);
       }
 
-      // get event
       const event = await Event.findById(pfData.custom_str1);
-
       if (!event) {
         console.log("❌ Event not found");
         return res.sendStatus(200);
       }
 
-      console.log("✅ Event:", event.title);
+      const ticketType = pfData.custom_str2;
 
-      // create QR
+      // Verify amount matches
+      const expectedAmount = parseFloat(pfData.custom_str3);
+      const receivedAmount = parseFloat(pfData.amount_gross || pfData.amount || 0);
+      
+      if (Math.abs(receivedAmount - expectedAmount) > 0.01) {
+        console.log("❌ Amount mismatch");
+        return res.sendStatus(400);
+      }
+
+      // Generate QR Code
       const qr = await QRCode.toDataURL(
-        `ticket:${pfData.m_payment_id}:${pfData.email_address}`
+        `ticket:${pfData.m_payment_id}:${pfData.email_address || "unknown"}`
       );
 
-      // create ticket
-      const ticket = await Ticket.create({
+      // Create Ticket
+      await Ticket.create({
         event: event._id,
         buyerEmail: pfData.email_address,
+        ticketType: ticketType,
         qrCode: qr,
         paymentId: pfData.m_payment_id,
-        status: "paid"
+        status: "paid",
+        amount: receivedAmount
       });
 
-      console.log("🎟️ Ticket created:", ticket._id);
+      console.log(`🎟️ Ticket created for ${ticketType}`);
 
-      // reduce count
-      await Event.findByIdAndUpdate(event._id, {
-        $inc: { ticketsAvailable: -1 }
-      });
+      // Reduce quantity for the specific ticket type
+      await Event.findByIdAndUpdate(
+        event._id,
+        { $inc: { "ticketTypes.$[elem].quantity": -1 } },
+        { 
+          arrayFilters: [{ "elem.name": ticketType }] 
+        }
+      );
 
-      console.log("📉 Tickets reduced");
+      console.log(`📉 Reduced quantity for ticket type: ${ticketType}`);
 
       return res.sendStatus(200);
 
     } catch (err) {
-      console.error("❌ ERROR:", err);
-      return res.sendStatus(500);
+      console.error("❌ NOTIFY ERROR:", err.message);
+      return res.sendStatus(200); // Always return 200 to PayFast
     }
   }
 );
